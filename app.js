@@ -46,9 +46,9 @@
     { id: 'meet', label: 'I’ll meet you there', summary: 'Meeting at the beach', closing: 'I’ll meet you there with your flowers, and make sure you’re home by ', closingNo: 'I’ll meet you there and make sure you’re home by ' }
   ];
 
-  var STEP_LABELS = ['The question', 'Sky', 'Beach', 'Flowers', 'Home by', 'Done'];
+  var STEP_LABELS = ['The question', 'Sky', 'Day', 'Beach', 'Flowers', 'Home by', 'Done'];
 
-  var initialState = { step: 0, time: null, beach: null, picks: [], curfew: null, convince: false, convinced: false, ride: 'bike', noFlowers: false, toast: '', sendState: 'idle' };
+  var initialState = { step: 0, time: null, date: null, dateError: '', beach: null, picks: [], curfew: null, convince: false, convinced: false, ride: 'bike', noFlowers: false, toast: '', sendState: 'idle' };
   var state = Object.assign({}, initialState);
 
   var root = document.getElementById('app');
@@ -67,6 +67,32 @@
     var h12 = h % 12 || 12;
     return h12 + ':' + String(m).padStart(2, '0') + ' ' + ap;
   }
+  var WD = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var MO = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+  function pad(n) { return String(n).padStart(2, '0'); }
+  function toIso(dt) { return dt.getFullYear() + '-' + pad(dt.getMonth() + 1) + '-' + pad(dt.getDate()); }
+  function fromIso(iso) { var p = iso.split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+  function addDays(dt, n) { var x = new Date(dt.getFullYear(), dt.getMonth(), dt.getDate()); x.setDate(x.getDate() + n); return x; }
+  function isWeekend(dt) { return dt.getDay() === 0 || dt.getDay() === 6; }
+  function longDate(iso) { if (!iso) return ''; var dt = fromIso(iso); return WD[dt.getDay()] + ', ' + dt.getDate() + ' ' + MO[dt.getMonth()]; }
+  function shortDate(iso) { if (!iso) return ''; var dt = fromIso(iso); return WD[dt.getDay()].slice(0, 3) + ' ' + dt.getDate() + ' ' + MO[dt.getMonth()].slice(0, 3); }
+  /* Weekdays only work in the evening (after 5 pm), so sunrise is weekend-only. */
+  function dateAllowed(iso, time) {
+    if (!iso) return false;
+    var dt = fromIso(iso);
+    var tomorrow = addDays(new Date(), 1);
+    if (dt < tomorrow) return false;
+    return time === 'sunset' || isWeekend(dt);
+  }
+  function dayOptions(time) {
+    var out = [], start = addDays(new Date(), 1);
+    for (var i = 0; out.length < (time === 'sunset' ? 14 : 8) && i < 60; i++) {
+      var dt = addDays(start, i);
+      if (time === 'sunset' || isWeekend(dt)) out.push(dt);
+    }
+    return out;
+  }
+
   function setState(patch) {
     var prevStep = state.step, prevConvince = state.convince;
     state = Object.assign({}, state, patch);
@@ -92,13 +118,16 @@
     var rideClosing = s.noFlowers ? ride0.closingNo : ride0.closing;
     var bName = beach ? beach.name : '';
     var curfewLabel = fmtTime(s.curfew);
+    var weekdayEvening = s.time === 'sunset' && s.date && !isWeekend(fromIso(s.date));
+    var onDay = s.date ? ' on ' + longDate(s.date) : '';
     var closing = (s.time === 'sunset'
-      ? 'Golden hour at ' + bName + '. '
-      : 'Watching the sun come up at ' + bName + '. ') + rideClosing + (curfewLabel || 'your curfew') + '.';
+      ? 'Golden hour at ' + bName + onDay + '. '
+      : 'Watching the sun come up at ' + bName + onDay + '. ') + rideClosing + (curfewLabel || 'your curfew') + '.';
     return {
       t: t, beach: beach, bName: bName, timeLabel: timeLabel, bouquet: bouquet,
       ride: ride0, curfewLabel: curfewLabel, closing: closing,
-      meetLine: s.time === 'sunset' ? 'pickup at golden hour' : 'pickup before dawn'
+      dateLong: longDate(s.date), dateShort: shortDate(s.date),
+      meetLine: weekdayEvening ? 'pickup after 5 pm' : (s.time === 'sunset' ? 'pickup at golden hour' : 'pickup before dawn')
     };
   }
 
@@ -214,6 +243,42 @@
       '</div>';
   }
 
+  function dayView(d) {
+    var sunrise = state.time !== 'sunset';
+    var cards = dayOptions(state.time).map(function (dt) {
+      var iso = toIso(dt);
+      var wk = isWeekend(dt);
+      var on = state.date === iso;
+      return '' +
+        '<button class="day' + (on ? ' selected' : '') + '" data-action="pickDay" data-id="' + iso + '" aria-pressed="' + on + '">' +
+          '<span class="day-name serif">' + WD[dt.getDay()].slice(0, 3) + '</span>' +
+          '<span class="day-date">' + dt.getDate() + ' ' + MO[dt.getMonth()].slice(0, 3) + '</span>' +
+          '<span class="day-tag">' + (wk ? 'Weekend' : 'After 5 pm') + '</span>' +
+        '</button>';
+    }).join('');
+    var max = toIso(addDays(new Date(), 90));
+    var min = toIso(addDays(new Date(), 1));
+    return '' +
+      '<div class="stack" style="gap:28px">' +
+        '<div class="stack-sm">' +
+          '<p class="eyebrow">' + esc(d.timeLabel) + ' it is</p>' +
+          '<h2 class="h2 serif">Which day works for you?</h2>' +
+          '<p class="body">' + (sunrise
+            ? 'Sunrise means an early start, so it\'s a weekend thing. Pick a Saturday or Sunday.'
+            : 'Any weekend, or a weekday evening. On weekdays I\'ll pick you up after 5 pm, just in time for the sky.') + '</p>' +
+        '</div>' +
+        '<div class="grid-days">' + cards + '</div>' +
+        '<div class="panel panel-curfew">' +
+          '<div class="field">' +
+            '<label for="date-pick">Or pick another date</label>' +
+            '<input id="date-pick" class="time-input serif" type="date" min="' + min + '" max="' + max + '" value="' + esc(state.date || '') + '">' +
+          '</div>' +
+          '<p class="hint" aria-live="polite">' + esc(state.dateError || (state.date ? longDate(state.date) + '. Perfect.' : (sunrise ? 'Weekends only for sunrise.' : 'Weekday evenings or weekends.'))) + '</p>' +
+          '<button class="btn-primary" data-action="confirmDay"' + (state.date ? '' : ' disabled') + ' style="margin-bottom:4px">That day works</button>' +
+        '</div>' +
+      '</div>';
+  }
+
   function beachView(d) {
     var intro = state.time === 'sunset'
       ? 'Spots a bike ride from Velachery, where the evening breeze and the pink sky are worth it. The marked ones have rocks to sit on.'
@@ -235,7 +300,7 @@
     return '' +
       '<div class="stack">' +
         '<div class="stack-sm">' +
-          '<p class="eyebrow">' + esc(d.timeLabel) + ' it is</p>' +
+          '<p class="eyebrow">' + esc(d.timeLabel) + ' · ' + esc(d.dateShort) + '</p>' +
           '<h2 class="h2 serif">Which beach?</h2>' +
           '<p class="body">' + esc(intro) + '</p>' +
         '</div>' +
@@ -327,6 +392,7 @@
 
   function doneView(d) {
     var rows = [
+      ['Day', d.dateLong],
       ['When', d.timeLabel + ' · ' + d.meetLine],
       ['Where', d.bName + ', ' + (d.beach ? d.beach.area : '')],
       ['Ride', d.ride.summary],
@@ -377,12 +443,13 @@
     var body;
     if (state.step === 0) body = state.convince ? pitchView() : questionView();
     else if (state.step === 1) body = skyView();
-    else if (state.step === 2) body = beachView(d);
-    else if (state.step === 3) body = flowersView(d);
-    else if (state.step === 4) body = homeByView(d);
+    else if (state.step === 2) body = dayView(d);
+    else if (state.step === 3) body = beachView(d);
+    else if (state.step === 4) body = flowersView(d);
+    else if (state.step === 5) body = homeByView(d);
     else body = doneView(d);
 
-    var back = (state.step >= 1 && state.step <= 4)
+    var back = (state.step >= 1 && state.step <= 5)
       ? '<div><button class="btn-back" data-action="back">' + BACK_ICON + 'Back</button></div>'
       : '';
 
@@ -392,7 +459,8 @@
   /* ---------------- sending the answers ---------------- */
   function planText() {
     var d = derive();
-    return 'When: ' + d.timeLabel + ' (' + d.meetLine + ')\n' +
+    return 'Day: ' + d.dateLong + '\n' +
+      'When: ' + d.timeLabel + ' (' + d.meetLine + ')\n' +
       'Where: ' + d.bName + ', ' + (d.beach ? d.beach.area : '') + '\n' +
       'Ride: ' + d.ride.summary + '\n' +
       'Home by: ' + d.curfewLabel + '\n' +
@@ -433,10 +501,11 @@
       headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
       body: JSON.stringify({
         access_key: CONFIG.web3formsKey,
-        subject: 'She answered ✨ ' + d.timeLabel + ' at ' + d.bName,
+        subject: 'She answered ✨ ' + d.dateShort + ', ' + d.timeLabel.toLowerCase() + ' at ' + d.bName,
         from_name: 'Your little question',
         message: text + '\n\nNeeded convincing: ' + (state.convinced ? 'yes' : 'no') +
           '\nSent: ' + new Date().toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' }) + ' IST',
+        day: d.dateLong,
         sky: d.timeLabel,
         beach: d.bName,
         ride: d.ride.summary,
@@ -465,23 +534,33 @@
       case 'maybe': setState({ convince: true, convinced: true }); break;
       case 'backToQuestion': setState({ convince: false }); break;
       case 'back': setState({ step: Math.max(0, state.step - 1) }); break;
-      case 'pickTime': setState({ time: id, step: 2 }); break;
-      case 'pickBeach': setState({ beach: id, step: 3 }); break;
+      case 'pickTime': setState({ time: id, step: 2, dateError: '', date: dateAllowed(state.date, id) ? state.date : null }); break;
+      case 'pickDay': setState({ date: id, dateError: '', step: 3 }); break;
+      case 'confirmDay': if (state.date) setState({ step: 3 }); break;
+      case 'pickBeach': setState({ beach: id, step: 4 }); break;
       case 'toggleFlower':
         if (state.picks.indexOf(id) !== -1) setState({ picks: state.picks.filter(function (x) { return x !== id; }) });
         else if (state.picks.length < 3) setState({ picks: state.picks.concat(id), noFlowers: false });
         break;
-      case 'skipFlowers': setState({ picks: [], noFlowers: true, step: 4 }); break;
-      case 'finishFlowers': if (state.picks.length) setState({ step: 4, noFlowers: false }); break;
+      case 'skipFlowers': setState({ picks: [], noFlowers: true, step: 5 }); break;
+      case 'finishFlowers': if (state.picks.length) setState({ step: 5, noFlowers: false }); break;
       case 'pickRide': setState({ ride: id }); break;
-      case 'confirm': if (state.curfew) setState({ step: 5, toast: '', sendState: 'idle' }); break;
+      case 'confirm': if (state.curfew) setState({ step: 6, toast: '', sendState: 'idle' }); break;
       case 'share': sendAnswers(); break;
       case 'whatsapp': openWhatsApp(planText()); break;
-      case 'restart': setState({ step: 1, time: null, beach: null, picks: [], curfew: null, ride: 'bike', noFlowers: false, toast: '', sendState: 'idle' }); break;
+      case 'restart': setState({ step: 1, time: null, date: null, dateError: '', beach: null, picks: [], curfew: null, ride: 'bike', noFlowers: false, toast: '', sendState: 'idle' }); break;
     }
   });
 
   root.addEventListener('change', function (e) {
+    if (e.target && e.target.id === 'date-pick') {
+      var v = e.target.value;
+      if (!v) { setState({ date: null, dateError: '' }); return; }
+      if (dateAllowed(v, state.time)) setState({ date: v, dateError: '' });
+      else if (fromIso(v) < addDays(new Date(), 1)) setState({ date: null, dateError: 'Pick a day from tomorrow onwards.' });
+      else setState({ date: null, dateError: longDate(v) + ' is a weekday. Sunrise only works on a weekend, so try a Saturday or Sunday.' });
+      return;
+    }
     if (e.target && e.target.id === 'curfew-time') {
       setState({ curfew: e.target.value || null });
     }
