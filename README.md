@@ -6,7 +6,7 @@ I made something for you. It takes about two minutes.
 
 **On your phone or laptop, just tap this link:**
 
-### 👉 https://&lt;github-username&gt;.github.io/&lt;repo-name&gt;/
+### 👉 [https://&lt;github-username&gt;.github.io/&lt;repo-name&gt;/](https://hakash2002.github.io/a-little-question/)
 
 That's all. Nothing to install, no account, nothing to sign up for. Works in Chrome, Safari, Edge and Firefox.
 
